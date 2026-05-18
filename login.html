@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI IDS - Login</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        .glass-panel {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        }
+
+        .bg-pattern {
+            background-color: #111827;
+            background-image: radial-gradient(#374151 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+    </style>
+</head>
+
+<body class="bg-pattern flex h-screen items-center justify-center font-sans text-gray-800">
+
+    <div class="glass-panel w-full max-w-md p-8 space-y-8 relative overflow-hidden">
+        <div class="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 rounded-full bg-blue-500 opacity-10 blur-2xl"></div>
+        <div class="absolute bottom-0 left-0 -ml-8 -mb-8 w-32 h-32 rounded-full bg-purple-500 opacity-10 blur-2xl">
+        </div>
+
+        <div class="text-center relative z-10">
+            <div
+                class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-900 text-white mb-4 shadow-lg shadow-gray-900/30">
+                <i class="fa-solid fa-shield-halved text-2xl"></i>
+            </div>
+            <h2 class="text-3xl font-bold text-gray-900">AI IDS System</h2>
+            <p class="text-sm text-gray-500 mt-2">Sign in to access the control panel</p>
+        </div>
+
+        <form id="loginForm" class="space-y-6 relative z-10">
+            <div>
+                <label for="username" class="block text-sm font-semibold text-gray-700 mb-1">Username</label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="fa-solid fa-user text-gray-400"></i>
+                    </div>
+                    <input type="text" id="username" name="username" required
+                        class="pl-10 w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none bg-gray-50 text-gray-900"
+                        placeholder="Enter your username">
+                </div>
+            </div>
+
+            <div>
+                <label for="password" class="block text-sm font-semibold text-gray-700 mb-1">Password</label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="fa-solid fa-lock text-gray-400"></i>
+                    </div>
+                    <input type="password" id="password" name="password" required
+                        class="pl-10 w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none bg-gray-50 text-gray-900"
+                        placeholder="Enter your password">
+                </div>
+            </div>
+
+            <button type="submit" id="loginBtn"
+                class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg shadow-lg shadow-blue-500/30 transition-all transform active:scale-[0.98] flex justify-center items-center">
+                <span id="btnText">Sign In</span>
+                <i id="btnSpinner" class="fa-solid fa-circle-notch fa-spin hidden ml-2"></i>
+            </button>
+        </form>
+
+        <div class="text-center text-xs text-gray-400 mt-6 relative z-10">
+            Graduation Project © 2026
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "http://localhost:8000";
+        const loginForm = document.getElementById('loginForm');
+        const loginBtn = document.getElementById('loginBtn');
+        const btnText = document.getElementById('btnText');
+        const btnSpinner = document.getElementById('btnSpinner');
+
+        loginForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            // Đổi UI nút bấm thành trạng thái đang loading
+            btnText.innerText = "Authenticating...";
+            btnSpinner.classList.remove('hidden');
+            loginBtn.disabled = true;
+            loginBtn.classList.add('opacity-75', 'cursor-not-allowed');
+
+            try {
+                // GỌI API THẬT XUỐNG BACK-END
+                let res = await fetch(`${API_URL}/login`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, password })
+                });
+
+                let data = await res.json();
+
+                if (res.ok) {
+                    // Lưu Token và Role từ DB trả về
+                    localStorage.setItem('token', data.access_token);
+                    localStorage.setItem('role', data.role);
+                    window.location.href = 'index.html';
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Access Denied',
+                        text: data.detail || 'Invalid username or password!',
+                        confirmButtonColor: '#2563eb'
+                    });
+                    resetButton();
+                }
+
+            } catch (error) {
+                Swal.fire({ icon: 'error', title: 'Connection Error', text: 'Cannot connect to Server' });
+                resetButton();
+            }
+        });
+
+        function resetButton() {
+            btnText.innerText = "Sign In";
+            btnSpinner.classList.add('hidden');
+            loginBtn.disabled = false;
+            loginBtn.classList.remove('opacity-75', 'cursor-not-allowed');
+        }
+
+        // Nếu đã có token thì đẩy thẳng vào dashboard, không bắt đăng nhập lại
+        if (localStorage.getItem('token')) {
+            window.location.href = 'index.html';
+        }
+    </script>
+</body>
+
+</html>

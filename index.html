@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Network Detection - Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        .glass-panel {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+
+        .blinking {
+            animation: blinker 3s ease-in-out infinite;
+        }
+
+        @keyframes blinker {
+            50% {
+                opacity: 0;
+            }
+        }
+
+        /* Style cho tab đang active */
+        .tab-active {
+            background-color: #2563eb;
+            color: white;
+        }
+
+        .tab-inactive {
+            background-color: transparent;
+            color: #d1d5db;
+        }
+
+        .tab-inactive:hover {
+            background-color: #1f2937;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-100 flex h-screen overflow-hidden text-gray-800">
+
+    <div class="w-64 bg-gray-900 text-white flex flex-col">
+        <div class="p-6 text-2xl font-bold border-b border-gray-800 text-center">
+            AI IDS
+        </div>
+        <div class="p-4 flex-1">
+            <ul class="space-y-2">
+                <li id="btn-tab-dashboard" onclick="switchTab('dashboard')"
+                    class="tab-active rounded-lg px-4 py-3 cursor-pointer transition font-medium">
+                    <i class="fa-solid fa-chart-line mr-2"></i> Dashboard
+                </li>
+                <li id="btn-tab-analytics" onclick="switchTab('analytics')"
+                    class="tab-inactive rounded-lg px-4 py-3 cursor-pointer transition font-medium">
+                    <i class="fa-solid fa-chart-pie mr-2"></i> Analytics
+                </li>
+                <li id="btn-tab-users" onclick="switchTab('users')"
+                    class="tab-inactive rounded-lg px-4 py-3 cursor-pointer transition font-medium hidden">
+                    <i class="fa-solid fa-users mr-2"></i> User Management
+                </li>
+            </ul>
+        </div>
+        <div class="p-4 text-xs text-gray-500 text-center border-t border-gray-800">
+            Graduation Project © 2026
+        </div>
+    </div>
+
+    <div class="flex-1 flex flex-col overflow-y-auto">
+        <header class="bg-white shadow-sm p-4 flex justify-between items-center">
+            <h1 class="text-xl font-bold text-gray-700" id="header-title">Real-time Intrusion Detection</h1>
+            <div class="flex items-center space-x-6">
+                <div class="flex items-center space-x-2">
+                    <span class="relative flex h-3 w-3">
+                        <span
+                            class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                    </span>
+                    <span class="text-sm font-semibold text-green-600">System Online</span>
+                </div>
+                <button onclick="logout()"
+                    class="text-gray-500 hover:text-red-600 transition flex items-center space-x-1 font-medium text-sm">
+                    <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                    <span>Logout</span>
+                </button>
+            </div>
+        </header>
+
+        <div class="p-6 space-y-6 max-w-7xl mx-auto w-full">
+
+            <div id="tab-dashboard" class="space-y-6 block">
+                <div id="statusAlert"
+                    class="rounded-xl p-6 text-white font-bold text-2xl flex items-center justify-between bg-gray-400 transition-all duration-500">
+                    <div class="flex items-center">
+                        <div id="statusText">CONNECTING...</div>
+                        <div class="ml-4">
+                            <div id="timestampText" class="text-sm font-normal opacity-80 mt-1">Waiting for Zabbix data
+                            </div>
+                        </div>
+                    </div>
+                    <div class="text-4xl" id="confidenceText">--%</div>
+                </div>
+
+                <div class="grid grid-cols-4 gap-6">
+                    <div class="glass-panel border-l-4 border-blue-500">
+                        <div class="text-gray-500 text-sm font-bold uppercase">Latency</div>
+                        <div class="mt-2 flex items-baseline gap-2">
+                            <span class="text-3xl font-semibold" id="metric-latency">0.0</span> <span
+                                class="text-gray-500">s</span>
+                        </div>
+                    </div>
+                    <div class="glass-panel border-l-4 border-purple-500">
+                        <div class="text-gray-500 text-sm font-bold uppercase">NoPort Error</div>
+                        <div class="mt-2 text-3xl font-semibold" id="metric-noport">0</div>
+                    </div>
+                    <div class="glass-panel border-l-4 border-yellow-500">
+                        <div class="text-gray-500 text-sm font-bold uppercase">IP incoming</div>
+                        <div class="mt-2 text-3xl font-semibold" id="metric-ipin">0</div>
+                    </div>
+                    <div class="glass-panel border-l-4 border-green-500">
+                        <div class="text-gray-500 text-sm font-bold uppercase">ICMP incoming</div>
+                        <div class="mt-2 text-3xl font-semibold" id="metric-icmpin">0</div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-4 gap-6">
+                    <div class="glass-panel col-span-1">
+                        <h2 class="text-lg font-bold mb-4 border-b pb-2">Attack Control</h2>
+                        <div class="space-y-3">
+                            <button onclick="sendAttack('icmp')"
+                                class="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-3 px-4 rounded border border-gray-300 transition">
+                                ICMP Flood</button>
+                            <button onclick="sendAttack('scan')"
+                                class="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-3 px-4 rounded border border-gray-300 transition">
+                                Port Scan</button>
+                            <button onclick="sendAttack('udp')"
+                                class="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-3 px-4 rounded border border-gray-300 transition">
+                                UDP Flood</button>
+                            <button onclick="sendAttack('syn')"
+                                class="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-3 px-4 rounded border border-gray-300 transition">
+                                SYN Flood</button>
+                            <button onclick="stopAttack()"
+                                class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded shadow shadow-red-500/50 mt-4 transition">
+                                STOP ALL</button>
+                        </div>
+                    </div>
+
+                    <div class="glass-panel col-span-3">
+                        <h2 class="text-lg font-bold mb-4 border-b pb-2">Recent Activity Log</h2>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full text-left text-sm whitespace-nowrap">
+                                <thead
+                                    class="uppercase tracking-wider border-b-2 border-gray-200 bg-gray-50 text-gray-600">
+                                    <tr>
+                                        <th class="px-4 py-3">Time</th>
+                                        <th class="px-4 py-3">Status</th>
+                                        <th class="px-4 py-3">Confidence</th>
+                                        <th class="px-4 py-3">Latency</th>
+                                        <th class="px-4 py-3">IP In</th>
+                                        <th class="px-4 py-3">ICMP In</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="historyTableBody" class="divide-y divide-gray-100">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-users" class="hidden space-y-6">
+                <div class="grid grid-cols-3 gap-6">
+                    <div class="glass-panel col-span-1 h-fit">
+                        <h2 class="text-lg font-bold mb-4 border-b pb-2"><i
+                                class="fa-solid fa-user-plus text-blue-500 mr-2"></i>Thêm User Mới</h2>
+                        <form id="addUserForm" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-1">Username</label>
+                                <input type="text" id="newUsername" required
+                                    class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-1">Mật khẩu</label>
+                                <input type="password" id="newPassword" required
+                                    class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-1">Phân quyền (Role)</label>
+                                <select id="newRole"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500 bg-white">
+                                    <option value="monitor">Monitor (Chỉ xem)</option>
+                                    <option value="admin">Admin (Toàn quyền)</option>
+                                </select>
+                            </div>
+                            <button type="submit"
+                                class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition">Tạo
+                                Tài Khoản</button>
+                        </form>
+                    </div>
+
+                    <div class="glass-panel col-span-2">
+                        <h2 class="text-lg font-bold mb-4 border-b pb-2"><i
+                                class="fa-solid fa-list text-green-500 mr-2"></i>Danh Sách Tài Khoản</h2>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full text-left text-sm whitespace-nowrap">
+                                <thead
+                                    class="uppercase tracking-wider border-b-2 border-gray-200 bg-gray-50 text-gray-600">
+                                    <tr>
+                                        <th class="px-4 py-3">Username</th>
+                                        <th class="px-4 py-3">Quyền (Role)</th>
+                                        <th class="px-4 py-3">Lần đăng nhập cuối</th>
+                                        <th class="px-4 py-3 text-center">Hành động</th> </tr>
+                                    </tr>
+                                </thead>
+                                <tbody id="userTableBody" class="divide-y divide-gray-100">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "http://localhost:8000";
+
+        // 1. KIỂM TRA ĐĂNG NHẬP (BẢO VỆ ROUTE)
+        const token = localStorage.getItem('token');
+        const userRole = localStorage.getItem('role');
+
+        if (!token) {
+            // Nếu không có token, lập tức đá văng ra màn hình đăng nhập
+            window.location.href = 'login.html';
+        }
+
+        // 2. HÀM ĐĂNG XUẤT
+        function logout() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('role');
+            window.location.href = 'login.html';
+        }
+
+        // 3. XỬ LÝ PHÂN QUYỀN (RBAC) GIAO DIỆN KHI VỪA TẢI TRANG
+        document.addEventListener('DOMContentLoaded', () => {
+            if (userRole !== 'admin') {
+                const attackPanel = document.querySelector('.col-span-1.glass-panel');
+                if (attackPanel) attackPanel.style.display = 'none';
+
+                const logPanel = document.querySelector('.col-span-3.glass-panel');
+                if (logPanel) logPanel.className = 'glass-panel col-span-4';
+            } else {
+                // Nếu LÀ ADMIN -> Hiển thị tab Quản lý User
+                document.getElementById('btn-tab-users').classList.remove('hidden');
+                loadUsers(); // Gọi API lấy danh sách user
+            }
+        });
+
+        const Toast = Swal.mixin({
+            toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true
+        });
+
+        // ================= LOGIC CHUYỂN TAB =================
+        function switchTab(tabName) {
+            document.getElementById('btn-tab-dashboard').className = tabName === 'dashboard' ? 'tab-active rounded-lg px-4 py-3 cursor-pointer transition font-medium' : 'tab-inactive rounded-lg px-4 py-3 cursor-pointer transition font-medium';
+            document.getElementById('btn-tab-analytics').className = tabName === 'analytics' ? 'tab-active rounded-lg px-4 py-3 cursor-pointer transition font-medium' : 'tab-inactive rounded-lg px-4 py-3 cursor-pointer transition font-medium';
+
+            // Tab Users chỉ đổi màu nếu nó đang hiện thị
+            const tabUsersBtn = document.getElementById('btn-tab-users');
+            if (!tabUsersBtn.classList.contains('hidden')) {
+                tabUsersBtn.className = tabName === 'users' ? 'tab-active rounded-lg px-4 py-3 cursor-pointer transition font-medium' : 'tab-inactive rounded-lg px-4 py-3 cursor-pointer transition font-medium';
+            }
+
+            const titles = { 'dashboard': 'Real-time Intrusion Detection', 'analytics': 'Analytics & Visualization', 'users': 'User Management' };
+            document.getElementById('header-title').innerText = titles[tabName];
+
+            // FIX LỖI: Kiểm tra xem thẻ div có tồn tại không rồi mới đổi style
+            const tabDashboard = document.getElementById('tab-dashboard');
+            const tabAnalytics = document.getElementById('tab-analytics');
+            const tabUsers = document.getElementById('tab-users');
+
+            if (tabDashboard) tabDashboard.style.display = tabName === 'dashboard' ? 'block' : 'none';
+            if (tabAnalytics) tabAnalytics.style.display = tabName === 'analytics' ? 'block' : 'none';
+            
+            // Xóa class hidden của Tailwind để div hiển thị bình thường
+            if (tabUsers) {
+                if (tabName === 'users') {
+                    tabUsers.classList.remove('hidden');
+                    tabUsers.style.display = 'block';
+                } else {
+                    tabUsers.style.display = 'none';
+                }
+            }
+        }
+
+        // ================= BIẾN TOÀN CỤC CHO CHART =================
+        let trafficChartInstance = null;
+
+        // ================= API GỌI TẤN CÔNG =================
+        async function sendAttack(type) {
+            try {
+                let res = await fetch(`${API_URL}/attack`, {
+                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: type })
+                });
+                if (res.ok) Toast.fire({ icon: 'success', title: `Attack activated ${type.toUpperCase()}` });
+                else Toast.fire({ icon: 'error', title: 'Error activating attack' });
+            } catch (e) {
+                Toast.fire({ icon: 'error', title: 'Cannot connect to Backend' });
+            }
+        }
+
+        async function stopAttack() {
+            try {
+                let res = await fetch(`${API_URL}/stop`, { method: "POST" });
+                if (res.ok) Toast.fire({ icon: 'info', title: 'Attack stopped' });
+            } catch (e) {
+                Toast.fire({ icon: 'error', title: 'Cannot connect to Backend' });
+            }
+        }
+
+        let lastStatus = null;
+
+        // ================= FETCH DATA CHÍNH =================
+        async function fetchData() {
+            try {
+                // Live
+                let liveRes = await fetch(`${API_URL}/api/live_status`);
+                let liveData = await liveRes.json();
+                if (liveData.status && liveData.status !== "WAITING") {
+                    updateDashboard(liveData);
+                    lastStatus = liveData.status;
+                }
+
+                // History (Lấy 15 dòng để vẽ chart cho đẹp)
+                let histRes = await fetch(`${API_URL}/api/history?limit=15`);
+                let histData = await histRes.json();
+
+                updateTable(histData.slice(0, 7)); // Bảng chỉ cần hiện 7 dòng mới nhất
+                updateCharts(histData);            // Biểu đồ thì vẽ 15 điểm
+
+            } catch (error) {
+                console.error("Lỗi:", error);
+            }
+        }
+
+        function updateDashboard(data) {
+            const statusAlert = document.getElementById("statusAlert");
+
+            document.getElementById("statusText").innerText = data.status === "NORMAL" ? "SYSTEM IS SAFE" : `ALERT: ${data.status}`;
+            document.getElementById("timestampText").innerText = `Last updated: ${data.timestamp}`;
+            document.getElementById("confidenceText").innerText = `${parseFloat(data.confidence).toFixed(1)}%`;
+
+            if (data.status === "NORMAL") {
+                statusAlert.className = "rounded-xl p-6 text-white font-bold text-2xl flex items-center justify-between transition-all duration-500 bg-green-500 shadow-lg shadow-green-500/30";
+            } else {
+                statusAlert.className = "rounded-xl p-6 text-white font-bold text-2xl flex items-center justify-between transition-all duration-500 bg-red-600 shadow-lg shadow-red-600/50 blinking";
+            }
+
+            document.getElementById("metric-latency").innerText = parseFloat(data.latency).toFixed(4);
+            document.getElementById("metric-noport").innerText = parseInt(data.udpNoPorts);
+            document.getElementById("metric-ipin").innerText = parseInt(data.ipInReceives);
+            document.getElementById("metric-icmpin").innerText = parseInt(data.icmpInEchos);
+        }
+
+        function updateTable(historyData) {
+            let html = "";
+            historyData.forEach(row => {
+                let isAlert = row.status !== "NORMAL";
+                let statusBadge = isAlert
+                    ? `<span class="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-bold">${row.status}</span>`
+                    : `<span class="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-bold">${row.status}</span>`;
+
+                let rowClass = isAlert ? "bg-red-50/50" : "";
+
+                html += `<tr class="${rowClass} hover:bg-gray-100 transition">
+                    <td class="px-4 py-3 font-medium text-gray-900">${row.timestamp.split(' ')[1]}</td>
+                    <td class="px-4 py-3">${statusBadge}</td>
+                    <td class="px-4 py-3">${row.confidence}%</td>
+                    <td class="px-4 py-3">${parseFloat(row.latency).toFixed(4)}</td>
+                    <td class="px-4 py-3 ${row.ipInReceives > 1000 ? 'text-red-600 font-bold' : ''}">${parseInt(row.ipInReceives)}</td>
+                    <td class="px-4 py-3 ${row.icmpInEchos > 0 ? 'text-red-600 font-bold' : ''}">${parseInt(row.icmpInEchos)}</td>
+                </tr>`;
+            });
+            document.getElementById("historyTableBody").innerHTML = html;
+        }
+
+        // ================= VẼ BIỂU ĐỒ (GRAFANA CLONE) =================
+        let ethChartInstance = null;
+        let packetChartInstance = null;
+        let latencyChartInstance = null;
+        let noportChartInstance = null;
+
+        // ================= VẼ BIỂU ĐỒ (GRAFANA CLONE) =================
+        function updateCharts(historyData) {
+            let reversedData = [...historyData].reverse();
+
+            let labels = reversedData.map(row => row.timestamp.split(' ')[1]);
+            let latencyData = reversedData.map(row => row.latency);
+            let noportData = reversedData.map(row => row.udpNoPorts);
+            let icmpData = reversedData.map(row => row.icmpInEchos);
+
+            // Dữ liệu mới (Dùng || 0 để phòng hờ các bản ghi cũ trong DB chưa có cột này)
+            let ethInData = reversedData.map(row => row.ethIn || 0);
+            let ethOutData = reversedData.map(row => row.ethOut || 0);
+            let udpInData = reversedData.map(row => row.udpIn || 0);
+
+            Chart.defaults.color = '#6b7280';
+            const gridOptions = { color: '#e5e7eb', drawBorder: false };
+
+            // 1. CHART ETH0/0 (Received vs Sent)
+            const ctxEth = document.getElementById('ethChart').getContext('2d');
+            if (ethChartInstance) ethChartInstance.destroy();
+            ethChartInstance = new Chart(ctxEth, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Received (In)', data: ethInData, borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', borderWidth: 2, fill: true, tension: 0.4 },
+                        { label: 'Sent (Out)', data: ethOutData, borderColor: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.1)', borderWidth: 2, fill: true, tension: 0.4 }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: gridOptions } }, interaction: { mode: 'index', intersect: false } }
+            });
+
+            // 2. CHART PACKETS (ICMP Echos vs UDP Datagrams)
+            const ctxPacket = document.getElementById('packetChart').getContext('2d');
+            if (packetChartInstance) packetChartInstance.destroy();
+            packetChartInstance = new Chart(ctxPacket, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'ICMP Echos In', data: icmpData, borderColor: '#eab308', borderWidth: 2, tension: 0.4 },
+                        { label: 'UDP Datagrams In', data: udpInData, borderColor: '#10b981', borderWidth: 2, tension: 0.4 }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: gridOptions } }, interaction: { mode: 'index', intersect: false } }
+            });
+
+            // 3. CHART LATENCY (ICMP Response Time)
+            const ctxLatency = document.getElementById('latencyChart').getContext('2d');
+            if (latencyChartInstance) latencyChartInstance.destroy();
+            latencyChartInstance = new Chart(ctxLatency, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{ label: 'Response Time (s)', data: latencyData, borderColor: '#ef4444', borderWidth: 2, pointBackgroundColor: '#ef4444', tension: 0.2 }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: gridOptions, beginAtZero: true } } }
+            });
+
+            // 4. CHART NOPORT (UDP Error)
+            const ctxNoport = document.getElementById('noportChart').getContext('2d');
+            if (noportChartInstance) noportChartInstance.destroy();
+            noportChartInstance = new Chart(ctxNoport, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{ label: 'NoPorts Errors', data: noportData, backgroundColor: '#f97316', borderRadius: 4 }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: gridOptions, beginAtZero: true } } }
+            });
+        }
+        async function loadUsers() {
+            try {
+                let res = await fetch(`${API_URL}/api/users`);
+                if (res.ok) {
+                    let users = await res.json();
+                    let html = '';
+                    users.forEach(u => {
+                        let roleBadge = u.role === 'admin'
+                            ? `<span class="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs font-bold">Admin</span>`
+                            : `<span class="bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs font-bold">Monitor</span>`;
+
+                        // Ẩn nút xóa nếu đó là tài khoản 'admin' gốc
+                        let deleteBtn = u.username === 'admin' 
+                            ? `<span class="text-gray-300"><i class="fa-solid fa-lock"></i></span>`
+                            : `<button onclick="deleteUser('${u.username}')" class="text-red-500 hover:text-red-700 transition" title="Xóa user"><i class="fa-solid fa-trash-can"></i></button>`;
+
+                        html += `<tr class="hover:bg-gray-50 transition">
+                            <td class="px-4 py-3 font-medium text-gray-900"><i class="fa-solid fa-user text-gray-400 mr-2"></i>${u.username}</td>
+                            <td class="px-4 py-3">${roleBadge}</td>
+                            <td class="px-4 py-3 text-gray-500">${u.last_login || 'Chưa đăng nhập'}</td>
+                            <td class="px-4 py-3 text-center">${deleteBtn}</td>
+                        </tr>`;
+                    });
+                    document.getElementById('userTableBody').innerHTML = html;
+                }
+            } catch (e) {
+                console.error("Lỗi tải user:", e);
+            }
+        }
+
+        // Hàm Xóa User có xác nhận bằng SweetAlert2
+        function deleteUser(username) {
+            Swal.fire({
+                title: `Xóa tài khoản '${username}'?`,
+                text: "Hành động này không thể hoàn tác!",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Đồng ý, Xóa!',
+                cancelButtonText: 'Hủy bỏ'
+            }).then(async (result) => {
+                if (result.isConfirmed) {
+                    try {
+                        let res = await fetch(`${API_URL}/api/users/${username}`, { method: 'DELETE' });
+                        let data = await res.json();
+                        
+                        if (res.ok) {
+                            Swal.fire('Thành công!', data.message, 'success');
+                            loadUsers(); // Tải lại bảng để cập nhật giao diện
+                        } else {
+                            Swal.fire('Lỗi!', data.detail, 'error');
+                        }
+                    } catch (e) {
+                        Swal.fire('Lỗi!', 'Không thể kết nối đến Server', 'error');
+                    }
+                }
+            });
+        }
+
+        // Bắt sự kiện submit form tạo User
+        document.getElementById('addUserForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+            const username = document.getElementById('newUsername').value;
+            const password = document.getElementById('newPassword').value;
+            const role = document.getElementById('newRole').value;
+
+            try {
+                let res = await fetch(`${API_URL}/api/users`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password, role })
+                });
+
+                let data = await res.json();
+                if (res.ok) {
+                    Swal.fire({ icon: 'success', title: 'Thành công', text: data.message });
+                    document.getElementById('addUserForm').reset();
+                    loadUsers(); // Load lại bảng
+                } else {
+                    Swal.fire({ icon: 'error', title: 'Lỗi', text: data.detail });
+                }
+            } catch (e) {
+                Swal.fire({ icon: 'error', title: 'Lỗi', text: 'Không kết nối được server!' });
+            }
+        });
+        setInterval(fetchData, 5000);
+        fetchData();
+    </script>
+</body>
+
+</html>
