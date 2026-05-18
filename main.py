@@ -262,16 +262,20 @@ def create_user(user: UserCreate):
 
 # API Xóa User
 @app.delete("/api/users/{username}")
-def delete_user(username: str):
-    # Bảo vệ: Không cho phép xóa tài khoản Admin gốc
+def delete_user(username: str, requester_role: str = "monitor"):
+    # Luật 1: KHÔNG AI được phép xóa Root
     if username == "admin":
-        raise HTTPException(status_code=400, detail="Không thể xóa tài khoản Admin hệ thống!")
+        raise HTTPException(status_code=400, detail="Lỗi chí mạng: Không thể xóa tài khoản Root (Super Admin)!")
         
-    result = db["users"].delete_one({"username": username})
-    
-    if result.deleted_count == 0:
+    target_user = db["users"].find_one({"username": username})
+    if not target_user:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản này!")
         
+    # Luật 2: Admin thường KHÔNG ĐƯỢC xóa Admin khác hoặc Root
+    if requester_role == "admin" and target_user.get("role") in ["admin", "root"]:
+        raise HTTPException(status_code=403, detail="Từ chối truy cập: Admin không có quyền xóa một Admin khác!")
+        
+    db["users"].delete_one({"username": username})
     return {"message": f"Đã xóa thành công tài khoản {username}"}
 
 @app.post("/attack")
@@ -304,22 +308,20 @@ def get_history(limit: int = 10):
 
 @app.post("/login")
 def login(req: LoginRequest):
-    # 1. Tìm user trong Database
     user = db["users"].find_one({"username": req.username})
     
-    # 2. Kiểm tra user có tồn tại không và mật khẩu có khớp không
     if not user or not pwd_context.verify(req.password, user["hashed_password"]):
         raise HTTPException(status_code=401, detail="Sai tài khoản hoặc mật khẩu!")
     
-    # 3. Cập nhật thời gian đăng nhập cuối
+    # Cập nhật thời gian đăng nhập
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    db["users"].update_one(
-        {"username": req.username},
-        {"$set": {"last_login": current_time}}
-    )
+    db["users"].update_one({"username": req.username}, {"$set": {"last_login": current_time}})
     
-    # 4. Sinh Token và trả về (Tạm thời dùng token đơn giản, nếu thích sau này nâng cấp JWT thật)
+    # Ép kiểu tự động: Ai tên là 'admin' thì người đó nắm quyền Tối cao (root)
+    actual_role = "root" if req.username == "admin" else user.get("role", "monitor")
+    
     return {
-        "access_token": f"mock_jwt_token_{user['role']}",
-        "role": user["role"]
+        "access_token": f"mock_jwt_token_{actual_role}",
+        "role": actual_role,
+        "username": req.username
     }
