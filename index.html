@@ -250,16 +250,30 @@
 
         // 3. XỬ LÝ PHÂN QUYỀN (RBAC) GIAO DIỆN KHI VỪA TẢI TRANG
         document.addEventListener('DOMContentLoaded', () => {
-            if (userRole !== 'admin') {
+            if (userRole === 'monitor') {
+                // Monitor: Ẩn nút tấn công và tab User
                 const attackPanel = document.querySelector('.col-span-1.glass-panel');
                 if (attackPanel) attackPanel.style.display = 'none';
-
+                
                 const logPanel = document.querySelector('.col-span-3.glass-panel');
                 if (logPanel) logPanel.className = 'glass-panel col-span-4';
             } else {
-                // Nếu LÀ ADMIN -> Hiển thị tab Quản lý User
+                // Root & Admin: Mở tab User
                 document.getElementById('btn-tab-users').classList.remove('hidden');
-                loadUsers(); // Gọi API lấy danh sách user
+                
+                // Giới hạn quyền Tạo User dựa vào Role
+                const roleSelect = document.getElementById('newRole');
+                if (userRole === 'admin') {
+                    // Admin thường chỉ được tạo tài khoản Monitor
+                    roleSelect.innerHTML = `<option value="monitor">Monitor (Chỉ xem)</option>`;
+                } else if (userRole === 'root') {
+                    // Root được phép tạo cả Admin và Monitor
+                    roleSelect.innerHTML = `
+                        <option value="monitor">Monitor (Chỉ xem)</option>
+                        <option value="admin">Admin (Quản trị viên)</option>
+                    `;
+                }
+                loadUsers(); 
             }
         });
 
@@ -475,14 +489,30 @@
                     let users = await res.json();
                     let html = '';
                     users.forEach(u => {
-                        let roleBadge = u.role === 'admin'
-                            ? `<span class="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs font-bold">Admin</span>`
-                            : `<span class="bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs font-bold">Monitor</span>`;
+                        let actualRole = u.username === 'admin' ? 'root' : u.role;
+                        
+                        // Render Badge theo Role
+                        let roleBadge = '';
+                        if (actualRole === 'root') {
+                            roleBadge = `<span class="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-bold"><i class="fa-solid fa-crown mr-1"></i>Super Admin</span>`;
+                        } else if (actualRole === 'admin') {
+                            roleBadge = `<span class="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs font-bold">Admin</span>`;
+                        } else {
+                            roleBadge = `<span class="bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs font-bold">Monitor</span>`;
+                        }
 
-                        // Ẩn nút xóa nếu đó là tài khoản 'admin' gốc
-                        let deleteBtn = u.username === 'admin' 
-                            ? `<span class="text-gray-300"><i class="fa-solid fa-lock"></i></span>`
-                            : `<button onclick="deleteUser('${u.username}')" class="text-red-500 hover:text-red-700 transition" title="Xóa user"><i class="fa-solid fa-trash-can"></i></button>`;
+                        // Render Nút Xóa có kiểm tra phân quyền
+                        let deleteBtn = '';
+                        if (actualRole === 'root') {
+                            // Root thì hiện ổ khóa
+                            deleteBtn = `<span class="text-gray-300"><i class="fa-solid fa-lock"></i></span>`;
+                        } else if (userRole === 'admin' && actualRole === 'admin') {
+                            // Admin xem dòng của Admin khác -> Hiện nút Cấm
+                            deleteBtn = `<span class="text-gray-300" title="Bạn không có quyền xóa Admin khác"><i class="fa-solid fa-ban"></i></span>`;
+                        } else {
+                            // Các trường hợp hợp lệ thì hiện thùng rác
+                            deleteBtn = `<button onclick="deleteUser('${u.username}')" class="text-red-500 hover:text-red-700 transition" title="Xóa user"><i class="fa-solid fa-trash-can"></i></button>`;
+                        }
 
                         html += `<tr class="hover:bg-gray-50 transition">
                             <td class="px-4 py-3 font-medium text-gray-900"><i class="fa-solid fa-user text-gray-400 mr-2"></i>${u.username}</td>
@@ -498,7 +528,7 @@
             }
         }
 
-        // Hàm Xóa User có xác nhận bằng SweetAlert2
+        // Cập nhật hàm Xóa để gửi kèm quyền (requester_role) xuống Backend
         function deleteUser(username) {
             Swal.fire({
                 title: `Xóa tài khoản '${username}'?`,
@@ -512,14 +542,15 @@
             }).then(async (result) => {
                 if (result.isConfirmed) {
                     try {
-                        let res = await fetch(`${API_URL}/api/users/${username}`, { method: 'DELETE' });
+                        // Gửi kèm quyền của người bấm nút xuống Backend để kiểm tra chéo
+                        let res = await fetch(`${API_URL}/api/users/${username}?requester_role=${userRole}`, { method: 'DELETE' });
                         let data = await res.json();
                         
                         if (res.ok) {
                             Swal.fire('Thành công!', data.message, 'success');
-                            loadUsers(); // Tải lại bảng để cập nhật giao diện
+                            loadUsers(); 
                         } else {
-                            Swal.fire('Lỗi!', data.detail, 'error');
+                            Swal.fire('Lỗi bảo mật!', data.detail, 'error');
                         }
                     } catch (e) {
                         Swal.fire('Lỗi!', 'Không thể kết nối đến Server', 'error');
@@ -527,7 +558,6 @@
                 }
             });
         }
-
         // Bắt sự kiện submit form tạo User
         document.getElementById('addUserForm').addEventListener('submit', async function (e) {
             e.preventDefault();
