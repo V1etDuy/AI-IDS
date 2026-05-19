@@ -13,7 +13,9 @@ from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
 from passlib.context import CryptContext
 from datetime import datetime
-
+from datetime import timedelta
+from fastapi import Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 
 # ================= 1. CẤU HÌNH HỆ THỐNG =================
@@ -248,35 +250,69 @@ def get_all_users():
 def create_user(user: UserCreate):
     # Kiểm tra xem user đã tồn tại chưa
     if db["users"].find_one({"username": user.username}):
-        raise HTTPException(status_code=400, detail="Username đã tồn tại!")
+        raise HTTPException(status_code=400, detail="Username already exists!")
     
     # Tạo user mới với mật khẩu đã mã hóa
     new_user = {
         "username": user.username,
         "hashed_password": pwd_context.hash(user.password),
         "role": user.role,
-        "last_login": "Chưa đăng nhập" # Sẽ cập nhật khi user gọi hàm login
+        "last_login": "Never logged in" # Sẽ cập nhật khi user gọi hàm login
     }
     db["users"].insert_one(new_user)
-    return {"message": f"Đã tạo thành công tài khoản {user.username}"}
+    return {"message": f"Successfully created account {user.username}"}
 
 # API Xóa User
 @app.delete("/api/users/{username}")
 def delete_user(username: str, requester_role: str = "monitor"):
     # Luật 1: KHÔNG AI được phép xóa Root
     if username == "admin":
-        raise HTTPException(status_code=400, detail="Lỗi chí mạng: Không thể xóa tài khoản Root (Super Admin)!")
+        raise HTTPException(status_code=400, detail="Critical Error: Cannot delete the Root (Super Admin) account!")
         
     target_user = db["users"].find_one({"username": username})
     if not target_user:
-        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản này!")
+        raise HTTPException(status_code=404, detail="Account not found!")
         
     # Luật 2: Admin thường KHÔNG ĐƯỢC xóa Admin khác hoặc Root
     if requester_role == "admin" and target_user.get("role") in ["admin", "root"]:
-        raise HTTPException(status_code=403, detail="Từ chối truy cập: Admin không có quyền xóa một Admin khác!")
+        raise HTTPException(status_code=403, detail="Access Denied: Admins cannot delete other Admins!")
         
     db["users"].delete_one({"username": username})
-    return {"message": f"Đã xóa thành công tài khoản {username}"}
+    return {"message": f"Successfully deleted account {username}"}
+
+class UserUpdate(BaseModel):
+    new_username: str
+    new_role: str
+
+# API Sửa User (Cập nhật tên và quyền)
+@app.put("/api/users/{username}")
+def update_user(username: str, update_data: UserUpdate, requester_role: str = "monitor"):
+    # Luật 1: KHÔNG AI được phép sửa tên hoặc quyền của Root
+    if username == "admin":
+        raise HTTPException(status_code=400, detail="Critical Error: Cannot modify the Root (Super Admin) account!")
+        
+    target_user = db["users"].find_one({"username": username})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Account not found!")
+        
+    # Luật 2: Admin thường KHÔNG ĐƯỢC sửa Admin khác hoặc Root
+    if requester_role == "admin" and target_user.get("role") in ["admin", "root"]:
+        raise HTTPException(status_code=403, detail="Access Denied: Admins cannot modify other Admins!")
+
+    # Luật 3: Kiểm tra xem tên mới có bị trùng với ai khác trong DB không
+    if username != update_data.new_username:
+        if db["users"].find_one({"username": update_data.new_username}):
+            raise HTTPException(status_code=400, detail="New username already exists, please choose another!")
+
+    # Thực hiện cập nhật vào Database
+    db["users"].update_one(
+        {"username": username},
+        {"$set": {
+            "username": update_data.new_username,
+            "role": update_data.new_role
+        }}
+    )
+    return {"message": f"Successfully updated account {username}"}
 
 @app.post("/attack")
 def trigger_attack(req: AttackRequest):
@@ -311,7 +347,7 @@ def login(req: LoginRequest):
     user = db["users"].find_one({"username": req.username})
     
     if not user or not pwd_context.verify(req.password, user["hashed_password"]):
-        raise HTTPException(status_code=401, detail="Sai tài khoản hoặc mật khẩu!")
+        raise HTTPException(status_code=401, detail="Invalid username or password!")
     
     # Cập nhật thời gian đăng nhập
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
