@@ -158,12 +158,13 @@
                                 <thead
                                     class="uppercase tracking-wider border-b-2 border-gray-200 bg-gray-50 text-gray-600">
                                     <tr>
-                                        <th class="px-4 py-3">Time</th>
-                                        <th class="px-4 py-3">Status</th>
-                                        <th class="px-4 py-3">Confidence</th>
-                                        <th class="px-4 py-3">Latency</th>
-                                        <th class="px-4 py-3">IP In</th>
-                                        <th class="px-4 py-3">ICMP In</th>
+                                        <th class="px-2 py-3">Time</th>
+                                        <th class="px-2 py-3">Status</th>
+                                        <th class="px-2 py-3">Confidence</th>
+                                        <th class="px-2 py-3">Latency</th>
+                                        <th class="px-2 py-3">UDP NoPort</th>
+                                        <th class="px-2 py-3">IP In</th>
+                                        <th class="px-2 py-3">ICMP Echo</th>
                                     </tr>
                                 </thead>
                                 <tbody id="historyTableBody" class="divide-y divide-gray-100">
@@ -199,7 +200,8 @@
                                 </select>
                             </div>
                             <button type="submit"
-                                class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition">Create Account</button>
+                                class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition">Create
+                                Account</button>
                         </form>
                     </div>
 
@@ -252,12 +254,12 @@
             if (userRole === 'monitor') {
                 const attackPanel = document.querySelector('.col-span-1.glass-panel');
                 if (attackPanel) attackPanel.style.display = 'none';
-                
+
                 const logPanel = document.querySelector('.col-span-3.glass-panel');
                 if (logPanel) logPanel.className = 'glass-panel col-span-4';
             } else {
                 document.getElementById('btn-tab-users').classList.remove('hidden');
-                
+
                 const roleSelect = document.getElementById('newRole');
                 if (userRole === 'admin') {
                     roleSelect.innerHTML = `<option value="monitor">Monitor (Read-only)</option>`;
@@ -267,7 +269,7 @@
                         <option value="admin">Admin (Full Access)</option>
                     `;
                 }
-                loadUsers(); 
+                loadUsers();
             }
         });
 
@@ -296,7 +298,7 @@
 
             if (tabDashboard) tabDashboard.style.display = tabName === 'dashboard' ? 'block' : 'none';
             if (tabAnalytics) tabAnalytics.style.display = tabName === 'analytics' ? 'block' : 'none';
-            
+
             // Xóa class hidden của Tailwind để div hiển thị bình thường
             if (tabUsers) {
                 if (tabName === 'users') {
@@ -315,10 +317,21 @@
         async function sendAttack(type) {
             try {
                 let res = await fetch(`${API_URL}/attack`, {
-                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: type })
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${token}` // Đính kèm JWT
+                    },
+                    body: JSON.stringify({ type: type })
                 });
+
+                if (res.status === 401) { logout(); return; } // Hết hạn token
+
                 if (res.ok) Toast.fire({ icon: 'success', title: `Attack activated ${type.toUpperCase()}` });
-                else Toast.fire({ icon: 'error', title: 'Error activating attack' });
+                else {
+                    let data = await res.json();
+                    Toast.fire({ icon: 'error', title: data.detail || 'Error activating attack' });
+                }
             } catch (e) {
                 Toast.fire({ icon: 'error', title: 'Cannot connect to Backend' });
             }
@@ -326,7 +339,13 @@
 
         async function stopAttack() {
             try {
-                let res = await fetch(`${API_URL}/stop`, { method: "POST" });
+                let res = await fetch(`${API_URL}/stop`, {
+                    method: "POST",
+                    headers: { "Authorization": `Bearer ${token}` } // Đính kèm JWT
+                });
+
+                if (res.status === 401) { logout(); return; }
+
                 if (res.ok) Toast.fire({ icon: 'info', title: 'Attack stopped' });
             } catch (e) {
                 Toast.fire({ icon: 'error', title: 'Cannot connect to Backend' });
@@ -339,22 +358,29 @@
         async function fetchData() {
             try {
                 // Live
-                let liveRes = await fetch(`${API_URL}/api/live_status`);
+                let liveRes = await fetch(`${API_URL}/api/live_status`, {
+                    headers: { "Authorization": `Bearer ${token}` }
+                });
+                if (liveRes.status === 401) { logout(); return; }
+
                 let liveData = await liveRes.json();
                 if (liveData.status && liveData.status !== "WAITING") {
                     updateDashboard(liveData);
                     lastStatus = liveData.status;
                 }
 
-                // History (Lấy 15 dòng để vẽ chart cho đẹp)
-                let histRes = await fetch(`${API_URL}/api/history?limit=15`);
-                let histData = await histRes.json();
+                // History (Lấy 15 dòng để vẽ chart)
+                let histRes = await fetch(`${API_URL}/api/history?limit=15`, {
+                    headers: { "Authorization": `Bearer ${token}` }
+                });
+                if (histRes.status === 401) { logout(); return; }
 
+                let histData = await histRes.json();
                 updateTable(histData.slice(0, 7)); // Bảng chỉ cần hiện 7 dòng mới nhất
                 updateCharts(histData);            // Biểu đồ thì vẽ 15 điểm
 
             } catch (error) {
-                console.error("Lỗi:", error);
+                console.error("Lỗi fetching data:", error);
             }
         }
 
@@ -377,6 +403,7 @@
             document.getElementById("metric-icmpin").innerText = parseInt(data.icmpInEchos);
         }
 
+        // Cập nhật bảng Nhật ký hoạt động gần đây (Recent Activity Log)
         function updateTable(historyData) {
             let html = "";
             historyData.forEach(row => {
@@ -387,14 +414,22 @@
 
                 let rowClass = isAlert ? "bg-red-50/50" : "";
 
+                // Giữ lại trọn vẹn Ngày/Tháng/Năm và Giờ/Phút, cắt bỏ phần giây (:SS) ở cuối
+                let formattedTime = row.timestamp.slice(0, 16);
+
+                // Ép kiểu dữ liệu an toàn cho giá trị udpNoPorts nhận từ MongoDB
+                let noPortValue = row.udpNoPorts !== undefined ? parseInt(row.udpNoPorts) : 0;
+
                 html += `<tr class="${rowClass} hover:bg-gray-100 transition">
-                    <td class="px-4 py-3 font-medium text-gray-900">${row.timestamp.split(' ')[1]}</td>
-                    <td class="px-4 py-3">${statusBadge}</td>
-                    <td class="px-4 py-3">${row.confidence}%</td>
-                    <td class="px-4 py-3">${parseFloat(row.latency).toFixed(4)}</td>
-                    <td class="px-4 py-3 ${row.ipInReceives > 1000 ? 'text-red-600 font-bold' : ''}">${parseInt(row.ipInReceives)}</td>
-                    <td class="px-4 py-3 ${row.icmpInEchos > 0 ? 'text-red-600 font-bold' : ''}">${parseInt(row.icmpInEchos)}</td>
-                </tr>`;
+    <td class="px-2 py-3 font-medium text-gray-900">${formattedTime}</td>
+    <td class="px-2 py-3">${statusBadge}</td>
+    <td class="px-2 py-3">${parseFloat(row.confidence).toFixed(1)}%</td>
+    <td class="px-2 py-3">${parseFloat(row.latency).toFixed(4)}</td>
+    <td class="px-2 py-3 ${row.ipInReceives > 1000 && isAlert ? 'text-red-600 font-bold' : ''}">${parseInt(row.ipInReceives)}</td>
+    <td class="px-2 py-3 ${row.icmpInEchos > 0 && isAlert ? 'text-red-600 font-bold' : ''}">${parseInt(row.icmpInEchos)}</td>
+    
+    <td class="px-2 py-3 ${(noPortValue > 0 && isAlert) ? 'text-red-600 font-bold' : 'text-gray-500'}">${noPortValue}</td>
+</tr>`;
             });
             document.getElementById("historyTableBody").innerHTML = html;
         }
@@ -405,7 +440,6 @@
         let latencyChartInstance = null;
         let noportChartInstance = null;
 
-        // ================= VẼ BIỂU ĐỒ (GRAFANA CLONE) =================
         function updateCharts(historyData) {
             let reversedData = [...historyData].reverse();
 
@@ -413,8 +447,6 @@
             let latencyData = reversedData.map(row => row.latency);
             let noportData = reversedData.map(row => row.udpNoPorts);
             let icmpData = reversedData.map(row => row.icmpInEchos);
-
-            // Dữ liệu mới (Dùng || 0 để phòng hờ các bản ghi cũ trong DB chưa có cột này)
             let ethInData = reversedData.map(row => row.ethIn || 0);
             let ethOutData = reversedData.map(row => row.ethOut || 0);
             let udpInData = reversedData.map(row => row.udpIn || 0);
@@ -423,68 +455,83 @@
             const gridOptions = { color: '#e5e7eb', drawBorder: false };
 
             // 1. CHART ETH0/0 (Received vs Sent)
-            const ctxEth = document.getElementById('ethChart').getContext('2d');
-            if (ethChartInstance) ethChartInstance.destroy();
-            ethChartInstance = new Chart(ctxEth, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        { label: 'Received (In)', data: ethInData, borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', borderWidth: 2, fill: true, tension: 0.4 },
-                        { label: 'Sent (Out)', data: ethOutData, borderColor: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.1)', borderWidth: 2, fill: true, tension: 0.4 }
-                    ]
-                },
-                options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: gridOptions } }, interaction: { mode: 'index', intersect: false } }
-            });
+            const ctxEth = document.getElementById('ethChart');
+            if (ctxEth) {
+                if (ethChartInstance) ethChartInstance.destroy();
+                ethChartInstance = new Chart(ctxEth.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            { label: 'Received (In)', data: ethInData, borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', borderWidth: 2, fill: true, tension: 0.4 },
+                            { label: 'Sent (Out)', data: ethOutData, borderColor: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.1)', borderWidth: 2, fill: true, tension: 0.4 }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: gridOptions } }, interaction: { mode: 'index', intersect: false } }
+                });
+            }
 
             // 2. CHART PACKETS (ICMP Echos vs UDP Datagrams)
-            const ctxPacket = document.getElementById('packetChart').getContext('2d');
-            if (packetChartInstance) packetChartInstance.destroy();
-            packetChartInstance = new Chart(ctxPacket, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        { label: 'ICMP Echos In', data: icmpData, borderColor: '#eab308', borderWidth: 2, tension: 0.4 },
-                        { label: 'UDP Datagrams In', data: udpInData, borderColor: '#10b981', borderWidth: 2, tension: 0.4 }
-                    ]
-                },
-                options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: gridOptions } }, interaction: { mode: 'index', intersect: false } }
-            });
+            const ctxPacket = document.getElementById('packetChart');
+            if (ctxPacket) {
+                if (packetChartInstance) packetChartInstance.destroy();
+                packetChartInstance = new Chart(ctxPacket.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            { label: 'ICMP Echos In', data: icmpData, borderColor: '#eab308', borderWidth: 2, tension: 0.4 },
+                            { label: 'UDP Datagrams In', data: udpInData, borderColor: '#10b981', borderWidth: 2, tension: 0.4 }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: gridOptions } }, interaction: { mode: 'index', intersect: false } }
+                });
+            }
 
             // 3. CHART LATENCY (ICMP Response Time)
-            const ctxLatency = document.getElementById('latencyChart').getContext('2d');
-            if (latencyChartInstance) latencyChartInstance.destroy();
-            latencyChartInstance = new Chart(ctxLatency, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [{ label: 'Response Time (s)', data: latencyData, borderColor: '#ef4444', borderWidth: 2, pointBackgroundColor: '#ef4444', tension: 0.2 }]
-                },
-                options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: gridOptions, beginAtZero: true } } }
-            });
+            const ctxLatency = document.getElementById('latencyChart');
+            if (ctxLatency) {
+                if (latencyChartInstance) latencyChartInstance.destroy();
+                latencyChartInstance = new Chart(ctxLatency.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{ label: 'Response Time (s)', data: latencyData, borderColor: '#ef4444', borderWidth: 2, pointBackgroundColor: '#ef4444', tension: 0.2 }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: gridOptions, beginAtZero: true } } }
+                });
+            }
 
             // 4. CHART NOPORT (UDP Error)
-            const ctxNoport = document.getElementById('noportChart').getContext('2d');
-            if (noportChartInstance) noportChartInstance.destroy();
-            noportChartInstance = new Chart(ctxNoport, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [{ label: 'NoPorts Errors', data: noportData, backgroundColor: '#f97316', borderRadius: 4 }]
-                },
-                options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: gridOptions, beginAtZero: true } } }
-            });
+            const ctxNoport = document.getElementById('noportChart');
+            if (ctxNoport) {
+                if (noportChartInstance) noportChartInstance.destroy();
+                noportChartInstance = new Chart(ctxNoport.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{ label: 'NoPorts Errors', data: noportData, backgroundColor: '#f97316', borderRadius: 4 }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: gridOptions, beginAtZero: true } } }
+                });
+            }
         }
+
+        // ================= QUẢN LÝ USER =================
         async function loadUsers() {
             try {
-                let res = await fetch(`${API_URL}/api/users`);
+                let res = await fetch(`${API_URL}/api/users`, {
+                    headers: { "Authorization": `Bearer ${token}` }
+                });
+
+                if (res.status === 401) { logout(); return; }
+
                 if (res.ok) {
                     let users = await res.json();
                     let html = '';
                     users.forEach(u => {
                         let actualRole = u.username === 'admin' ? 'root' : u.role;
-                        
+
                         let roleBadge = '';
                         if (actualRole === 'root') {
                             roleBadge = `<span class="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-bold"><i class="fa-solid fa-crown mr-1"></i>Super Admin</span>`;
@@ -524,7 +571,6 @@
             }
         }
 
-        // Hàm Xóa User
         function deleteUser(username) {
             Swal.fire({
                 title: `Delete account '${username}'?`,
@@ -538,12 +584,16 @@
             }).then(async (result) => {
                 if (result.isConfirmed) {
                     try {
-                        let res = await fetch(`${API_URL}/api/users/${username}?requester_role=${userRole}`, { method: 'DELETE' });
+                        let res = await fetch(`${API_URL}/api/users/${username}?requester_role=${userRole}`, {
+                            method: 'DELETE',
+                            headers: { "Authorization": `Bearer ${token}` }
+                        });
+                        if (res.status === 401) { logout(); return; }
+
                         let data = await res.json();
-                        
                         if (res.ok) {
                             Swal.fire('Deleted!', data.message, 'success');
-                            loadUsers(); 
+                            loadUsers();
                         } else {
                             Swal.fire('Security Error!', data.detail, 'error');
                         }
@@ -553,9 +603,9 @@
                 }
             });
         }
-        // Hàm Sửa User sử dụng SweetAlert2
+
         async function editUser(oldUsername, oldRole) {
-            const roleOptions = userRole === 'root' 
+            const roleOptions = userRole === 'root'
                 ? `<option value="monitor" ${oldRole === 'monitor' ? 'selected' : ''}>Monitor (Read-only)</option>
                    <option value="admin" ${oldRole === 'admin' ? 'selected' : ''}>Admin (Full Access)</option>`
                 : `<option value="monitor" selected>Monitor (Read-only)</option>`;
@@ -597,14 +647,19 @@
                 try {
                     let res = await fetch(`${API_URL}/api/users/${oldUsername}?requester_role=${userRole}`, {
                         method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
                         body: JSON.stringify({ new_username: formValues.newUsername, new_role: formValues.newRole })
                     });
-                    
+
+                    if (res.status === 401) { logout(); return; }
+
                     let data = await res.json();
                     if (res.ok) {
                         Swal.fire('Success!', data.message, 'success');
-                        loadUsers(); 
+                        loadUsers();
                     } else {
                         Swal.fire('Security Error!', data.detail, 'error');
                     }
@@ -613,6 +668,7 @@
                 }
             }
         }
+
         // Bắt sự kiện submit form tạo User
         document.getElementById('addUserForm').addEventListener('submit', async function (e) {
             e.preventDefault();
@@ -623,9 +679,14 @@
             try {
                 let res = await fetch(`${API_URL}/api/users`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
                     body: JSON.stringify({ username, password, role })
                 });
+
+                if (res.status === 401) { logout(); return; }
 
                 let data = await res.json();
                 if (res.ok) {
@@ -639,6 +700,7 @@
                 Swal.fire({ icon: 'error', title: 'Error', text: 'Cannot connect to Server!' });
             }
         });
+
         setInterval(fetchData, 5000);
         fetchData();
     </script>
