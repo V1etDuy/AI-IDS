@@ -15,8 +15,8 @@ from passlib.context import CryptContext
 from datetime import datetime
 from datetime import timedelta
 from fastapi import Depends
+import jwt
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-
 
 # ================= 1. CẤU HÌNH HỆ THỐNG =================
 # Cấu hình GNS3 (Từ attack_docker.py)
@@ -57,7 +57,7 @@ ATTACK_COMMANDS = {
     "icmp": f"hping3 -1 --flood --rand-source {TARGET_IP}",
     "udp": f"hping3 -2 --flood -p 80 {TARGET_IP}",
     "syn": f"hping3 -S --flood --rand-source -p 80 {TARGET_IP}",
-    "scan": f"while true; do nmap -sS -p 1-1024 --min-rate 1000 {TARGET_IP}; nmap -sU -p 1-1024 --min-rate 500 {TARGET_IP}; done",
+    "scan": f"hping3 -S {TARGET_IP} -p ++1 -i u1000",
 }
 STOP_COMMAND = "pkill -9 -f hping3; pkill -9 -f nmap; pkill -9 -f nping;"
 
@@ -212,6 +212,31 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AI IDS Backend", lifespan=lifespan)
 
+# ================= CẤU HÌNH JWT =================
+SECRET_KEY = "ai_ids_super_secret_key_2026_graduation_project" # Mã bí mật để ký token (giấu kỹ nhé)
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 1440 # Token có hạn trong 24 giờ
+
+security = HTTPBearer()
+
+# Hàm tạo JWT thật
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+# Hàm kiểm tra và giải mã JWT (Dùng để chặn các API không hợp lệ)
+def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload # Trả về thông tin user (username, role)
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired! Please login again.")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token!")
+    
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -237,7 +262,7 @@ class LoginRequest(BaseModel):
 
 # API Lấy danh sách User (Chỉ trả về các thông tin an toàn, KHÔNG trả về password)
 @app.get("/api/users")
-def get_all_users():
+def get_all_users(current_user: dict = Depends(verify_token)):
     users = list(db["users"].find({}, {"_id": 0, "hashed_password": 0}))
     
     # Sắp xếp: role "admin" đứng trước (True/False logic trong Python), sau đó xếp theo tên
@@ -247,25 +272,28 @@ def get_all_users():
 
 # API Thêm User mới
 @app.post("/api/users")
-def create_user(user: UserCreate):
-    # Kiểm tra xem user đã tồn tại chưa
+def create_user(user: UserCreate, current_user: dict = Depends(verify_token)):
+    # Chỉ Root và Admin mới được tạo user
+    if current_user.get("role") not in ["root", "admin"]:
+        raise HTTPException(status_code=403, detail="Access Denied: Monitors cannot create users!")
+        
     if db["users"].find_one({"username": user.username}):
         raise HTTPException(status_code=400, detail="Username already exists!")
     
-    # Tạo user mới với mật khẩu đã mã hóa
     new_user = {
         "username": user.username,
         "hashed_password": pwd_context.hash(user.password),
         "role": user.role,
-        "last_login": "Never logged in" # Sẽ cập nhật khi user gọi hàm login
+        "last_login": "Never logged in"
     }
     db["users"].insert_one(new_user)
     return {"message": f"Successfully created account {user.username}"}
 
-# API Xóa User
+# API Xóa User (ĐÃ KHÓA & LẤY ROLE TỪ JWT)
 @app.delete("/api/users/{username}")
-def delete_user(username: str, requester_role: str = "monitor"):
-    # Luật 1: KHÔNG AI được phép xóa Root
+def delete_user(username: str, current_user: dict = Depends(verify_token)):
+    requester_role = current_user.get("role") # Lấy quyền an toàn từ Token
+    
     if username == "admin":
         raise HTTPException(status_code=400, detail="Critical Error: Cannot delete the Root (Super Admin) account!")
         
@@ -273,7 +301,6 @@ def delete_user(username: str, requester_role: str = "monitor"):
     if not target_user:
         raise HTTPException(status_code=404, detail="Account not found!")
         
-    # Luật 2: Admin thường KHÔNG ĐƯỢC xóa Admin khác hoặc Root
     if requester_role == "admin" and target_user.get("role") in ["admin", "root"]:
         raise HTTPException(status_code=403, detail="Access Denied: Admins cannot delete other Admins!")
         
@@ -284,10 +311,11 @@ class UserUpdate(BaseModel):
     new_username: str
     new_role: str
 
-# API Sửa User (Cập nhật tên và quyền)
+# API Sửa User (ĐÃ KHÓA & LẤY ROLE TỪ JWT)
 @app.put("/api/users/{username}")
-def update_user(username: str, update_data: UserUpdate, requester_role: str = "monitor"):
-    # Luật 1: KHÔNG AI được phép sửa tên hoặc quyền của Root
+def update_user(username: str, update_data: UserUpdate, current_user: dict = Depends(verify_token)):
+    requester_role = current_user.get("role") # Lấy quyền an toàn từ Token
+    
     if username == "admin":
         raise HTTPException(status_code=400, detail="Critical Error: Cannot modify the Root (Super Admin) account!")
         
@@ -295,16 +323,13 @@ def update_user(username: str, update_data: UserUpdate, requester_role: str = "m
     if not target_user:
         raise HTTPException(status_code=404, detail="Account not found!")
         
-    # Luật 2: Admin thường KHÔNG ĐƯỢC sửa Admin khác hoặc Root
     if requester_role == "admin" and target_user.get("role") in ["admin", "root"]:
         raise HTTPException(status_code=403, detail="Access Denied: Admins cannot modify other Admins!")
 
-    # Luật 3: Kiểm tra xem tên mới có bị trùng với ai khác trong DB không
     if username != update_data.new_username:
         if db["users"].find_one({"username": update_data.new_username}):
             raise HTTPException(status_code=400, detail="New username already exists, please choose another!")
 
-    # Thực hiện cập nhật vào Database
     db["users"].update_one(
         {"username": username},
         {"$set": {
@@ -314,8 +339,13 @@ def update_user(username: str, update_data: UserUpdate, requester_role: str = "m
     )
     return {"message": f"Successfully updated account {username}"}
 
+# ================= KẾT THÚC KHỐI QUẢN LÝ USER =================
+
+# API Tấn công (Giữ nguyên như của bạn)
 @app.post("/attack")
-def trigger_attack(req: AttackRequest):
+def trigger_attack(req: AttackRequest, current_user: dict = Depends(verify_token)):
+    if current_user.get("role") == "monitor":
+        raise HTTPException(status_code=403, detail="Monitors cannot trigger attacks!")
     if req.type not in ATTACK_COMMANDS:
         raise HTTPException(status_code=400, detail="Invalid attack type")
     run_remote_cmd(STOP_COMMAND, detach=False)
@@ -324,21 +354,25 @@ def trigger_attack(req: AttackRequest):
         return {"status": "started", "attack": req.type}
     raise HTTPException(status_code=500, detail="Failed to start attack")
 
+# API Dừng Tấn Công (Giữ nguyên như của bạn)
 @app.post("/stop")
-def stop_attacks():
+def stop_attacks(current_user: dict = Depends(verify_token)):
+    if current_user.get("role") == "monitor":
+        raise HTTPException(status_code=403, detail="Monitors cannot stop attacks!")
     ok = run_remote_cmd(STOP_COMMAND, detach=False)
     if ok:
         return {"status": "stopped"}
     raise HTTPException(status_code=500, detail="Failed to stop attacks")
 
+# Thêm khóa bảo vệ cho Dashboard Live Status
 @app.get("/api/live_status")
-def get_live_status():
+def get_live_status(current_user: dict = Depends(verify_token)):
     data = status_col.find_one({"_id": "current_status"}, {"_id": 0})
     return data if data else {"status": "WAITING"}
 
+# Thêm khóa bảo vệ cho Dashboard History
 @app.get("/api/history")
-def get_history(limit: int = 10):
-    # Lấy n bản ghi mới nhất
+def get_history(limit: int = 10, current_user: dict = Depends(verify_token)):
     logs = list(history_col.find({}, {"_id": 0}).sort("_id", -1).limit(limit))
     return logs
 
@@ -349,15 +383,15 @@ def login(req: LoginRequest):
     if not user or not pwd_context.verify(req.password, user["hashed_password"]):
         raise HTTPException(status_code=401, detail="Invalid username or password!")
     
-    # Cập nhật thời gian đăng nhập
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     db["users"].update_one({"username": req.username}, {"$set": {"last_login": current_time}})
     
-    # Ép kiểu tự động: Ai tên là 'admin' thì người đó nắm quyền Tối cao (root)
     actual_role = "root" if req.username == "admin" else user.get("role", "monitor")
     
+    access_token = create_access_token(data={"sub": req.username, "role": actual_role})
+    
     return {
-        "access_token": f"mock_jwt_token_{actual_role}",
+        "access_token": access_token,
         "role": actual_role,
         "username": req.username
     }
