@@ -9,7 +9,9 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
     <style>
         .glass-panel {
             background: white;
@@ -59,7 +61,7 @@
                 </li>
                 <li id="btn-tab-analytics" onclick="switchTab('analytics')"
                     class="tab-inactive rounded-lg px-4 py-3 cursor-pointer transition font-medium">
-                    <i class="fa-solid fa-chart-pie mr-2"></i> Analytics
+                    <i class="fa-solid fa-chart-pie mr-2"></i> Traffic Monitoring
                 </li>
                 <li id="btn-tab-users" onclick="switchTab('users')"
                     class="tab-inactive rounded-lg px-4 py-3 cursor-pointer transition font-medium hidden">
@@ -130,28 +132,7 @@
                 </div>
 
                 <div class="grid grid-cols-4 gap-6">
-                    <div class="glass-panel col-span-1">
-                        <h2 class="text-lg font-bold mb-4 border-b pb-2">Attack Control</h2>
-                        <div class="space-y-3">
-                            <button onclick="sendAttack('icmp')"
-                                class="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-3 px-4 rounded border border-gray-300 transition">
-                                ICMP Flood</button>
-                            <button onclick="sendAttack('scan')"
-                                class="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-3 px-4 rounded border border-gray-300 transition">
-                                Port Scan</button>
-                            <button onclick="sendAttack('udp')"
-                                class="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-3 px-4 rounded border border-gray-300 transition">
-                                UDP Flood</button>
-                            <button onclick="sendAttack('syn')"
-                                class="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-3 px-4 rounded border border-gray-300 transition">
-                                SYN Flood</button>
-                            <button onclick="stopAttack()"
-                                class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded shadow shadow-red-500/50 mt-4 transition">
-                                STOP ALL</button>
-                        </div>
-                    </div>
-
-                    <div class="glass-panel col-span-3">
+                    <div class="glass-panel col-span-4">
                         <h2 class="text-lg font-bold mb-4 border-b pb-2">Recent Activity Log</h2>
                         <div class="overflow-x-auto">
                             <table class="min-w-full text-left text-sm whitespace-nowrap">
@@ -174,7 +155,42 @@
                     </div>
                 </div>
             </div>
-
+            <div id="tab-analytics" class="hidden space-y-6">
+                <div class="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                    <h2 class="text-lg font-bold text-gray-700"><i
+                            class="fa-solid fa-filter text-blue-500 mr-2"></i>Data View Range</h2>
+                    <select id="timeRangeSelector" onchange="updateTimeRange()"
+                        class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 font-semibold cursor-pointer">
+                        <option value="1h">Last 1 Hour</option>
+                        <option value="3h">Last 3 Hours</option>
+                        <option value="6h">Last 6 Hours</option>
+                        <option value="12h">Last 12 Hours</option>
+                        <option value="1d">Last 1 Day</option>
+                        <option value="3d">Last 3 Days</option>
+                        <option value="7d">Last 7 Days</option>
+                        <option value="30d">Last 30 Days</option>
+                        <option value="90d">Last 90 Days</option>
+                        <option value="custom" hidden>Custom Zoom (Paused Auto-refresh)</option>
+                    </select>
+                </div>
+                <div class="grid grid-cols-1 gap-6">
+                    <div class="glass-panel">
+                        <h2 class="text-lg font-bold mb-4 border-b pb-2"><i
+                                class="fa-solid fa-cubes text-blue-500 mr-2"></i>Network Packets (IP/ICMP)</h2>
+                        <div class="h-64 relative"><canvas id="packetChart"></canvas></div>
+                    </div>
+                    <div class="glass-panel">
+                        <h2 class="text-lg font-bold mb-4 border-b pb-2"><i
+                                class="fa-solid fa-stopwatch text-red-500 mr-2"></i>Response Time</h2>
+                        <div class="h-64 relative"><canvas id="latencyChart"></canvas></div>
+                    </div>
+                    <div class="glass-panel">
+                        <h2 class="text-lg font-bold mb-4 border-b pb-2"><i
+                                class="fa-solid fa-triangle-exclamation text-orange-500 mr-2"></i>UDP NoPort Errors</h2>
+                        <div class="h-64 relative"><canvas id="noportChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
             <div id="tab-users" class="hidden space-y-6">
                 <div class="grid grid-cols-3 gap-6">
                     <div class="glass-panel col-span-1 h-fit">
@@ -251,13 +267,7 @@
 
         // 3. XỬ LÝ PHÂN QUYỀN (RBAC) GIAO DIỆN KHI VỪA TẢI TRANG
         document.addEventListener('DOMContentLoaded', () => {
-            if (userRole === 'monitor') {
-                const attackPanel = document.querySelector('.col-span-1.glass-panel');
-                if (attackPanel) attackPanel.style.display = 'none';
-
-                const logPanel = document.querySelector('.col-span-3.glass-panel');
-                if (logPanel) logPanel.className = 'glass-panel col-span-4';
-            } else {
+            if (userRole !== 'monitor') {
                 document.getElementById('btn-tab-users').classList.remove('hidden');
 
                 const roleSelect = document.getElementById('newRole');
@@ -288,7 +298,7 @@
                 tabUsersBtn.className = tabName === 'users' ? 'tab-active rounded-lg px-4 py-3 cursor-pointer transition font-medium' : 'tab-inactive rounded-lg px-4 py-3 cursor-pointer transition font-medium';
             }
 
-            const titles = { 'dashboard': 'Real-time Intrusion Detection', 'analytics': 'Analytics & Visualization', 'users': 'User Management' };
+            const titles = { 'dashboard': 'Real-time Intrusion Detection', 'analytics': 'Live metrics', 'users': 'User Management' };
             document.getElementById('header-title').innerText = titles[tabName];
 
             // FIX LỖI: Kiểm tra xem thẻ div có tồn tại không rồi mới đổi style
@@ -310,74 +320,52 @@
             }
         }
 
-        // ================= BIẾN TOÀN CỤC CHO CHART =================
-        let trafficChartInstance = null;
-
-        // ================= API GỌI TẤN CÔNG =================
-        async function sendAttack(type) {
-            try {
-                let res = await fetch(`${API_URL}/attack`, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${token}` // Đính kèm JWT
-                    },
-                    body: JSON.stringify({ type: type })
-                });
-
-                if (res.status === 401) { logout(); return; } // Hết hạn token
-
-                if (res.ok) Toast.fire({ icon: 'success', title: `Attack activated ${type.toUpperCase()}` });
-                else {
-                    let data = await res.json();
-                    Toast.fire({ icon: 'error', title: data.detail || 'Error activating attack' });
-                }
-            } catch (e) {
-                Toast.fire({ icon: 'error', title: 'Cannot connect to Backend' });
-            }
-        }
-
-        async function stopAttack() {
-            try {
-                let res = await fetch(`${API_URL}/stop`, {
-                    method: "POST",
-                    headers: { "Authorization": `Bearer ${token}` } // Đính kèm JWT
-                });
-
-                if (res.status === 401) { logout(); return; }
-
-                if (res.ok) Toast.fire({ icon: 'info', title: 'Attack stopped' });
-            } catch (e) {
-                Toast.fire({ icon: 'error', title: 'Cannot connect to Backend' });
-            }
-        }
-
         let lastStatus = null;
 
+        let currentRange = '1h';
+        let isZoomed = false;
+        function updateTimeRange() {
+            currentRange = document.getElementById('timeRangeSelector').value;
+            // NẾU CHỌN LẠI RANGE KHÁC, TẮT CHẾ ĐỘ ZOOM
+            if (currentRange !== 'custom') {
+                isZoomed = false;
+            }
+            fetchData();
+        }
         // ================= FETCH DATA CHÍNH =================
         async function fetchData() {
             try {
-                // Live
+                // 1. Fetch Live Status
                 let liveRes = await fetch(`${API_URL}/api/live_status`, {
                     headers: { "Authorization": `Bearer ${token}` }
                 });
                 if (liveRes.status === 401) { logout(); return; }
-
                 let liveData = await liveRes.json();
                 if (liveData.status && liveData.status !== "WAITING") {
                     updateDashboard(liveData);
-                    lastStatus = liveData.status;
                 }
 
-                // History (Lấy 15 dòng để vẽ chart)
-                let histRes = await fetch(`${API_URL}/api/history?limit=15`, {
+                // 2. Fetch History (Chỉ 7 dòng)
+                let histRes = await fetch(`${API_URL}/api/history?limit=7`, {
                     headers: { "Authorization": `Bearer ${token}` }
                 });
-                if (histRes.status === 401) { logout(); return; }
+                if (histRes.ok) {
+                    let histData = await histRes.json();
+                    updateTable(histData);
+                }
 
-                let histData = await histRes.json();
-                updateTable(histData.slice(0, 7)); // Bảng chỉ cần hiện 7 dòng mới nhất
-                updateCharts(histData);            // Biểu đồ thì vẽ 15 điểm
+                // 3. SỬA CHỖ NÀY: Truyền tham số range xuống Backend thay vì limit
+                let analyticsRes = await fetch(`${API_URL}/api/analytics?range=${currentRange}`, {
+                    headers: { "Authorization": `Bearer ${token}` }
+                });
+                if (analyticsRes.status === 401) { logout(); return; }
+
+                let analyticsData = await analyticsRes.json();
+
+                // SỬA CHỖ NÀY: Chỉ vẽ lại biểu đồ nếu không bị Zoom
+                if (!isZoomed) {
+                    updateCharts(analyticsData);
+                }
 
             } catch (error) {
                 console.error("Lỗi fetching data:", error);
@@ -435,7 +423,6 @@
         }
 
         // ================= VẼ BIỂU ĐỒ (GRAFANA CLONE) =================
-        let ethChartInstance = null;
         let packetChartInstance = null;
         let latencyChartInstance = null;
         let noportChartInstance = null;
@@ -443,35 +430,64 @@
         function updateCharts(historyData) {
             let reversedData = [...historyData].reverse();
 
-            let labels = reversedData.map(row => row.timestamp.split(' ')[1]);
-            let latencyData = reversedData.map(row => row.latency);
-            let noportData = reversedData.map(row => row.udpNoPorts);
-            let icmpData = reversedData.map(row => row.icmpInEchos);
-            let ethInData = reversedData.map(row => row.ethIn || 0);
-            let ethOutData = reversedData.map(row => row.ethOut || 0);
-            let udpInData = reversedData.map(row => row.udpIn || 0);
+            // Lấy nhãn thời gian MM-DD HH:MM
+            let labels = reversedData.map(row => row.timestamp ? row.timestamp.slice(5, 16) : '');
+            let latencyData = reversedData.map(row => row.latency !== undefined ? parseFloat(row.latency) : 0);
+            let ipInPackets = reversedData.map(row => row.ipInReceives !== undefined ? parseInt(row.ipInReceives) : 0);
+            let icmpEchoIn = reversedData.map(row => row.icmpInEchos !== undefined ? parseInt(row.icmpInEchos) : 0);
+            let noportData = reversedData.map(row => row.udpNoPorts !== undefined ? parseInt(row.udpNoPorts) : 0);
 
             Chart.defaults.color = '#6b7280';
             const gridOptions = { color: '#e5e7eb', drawBorder: false };
 
-            // 1. CHART ETH0/0 (Received vs Sent)
-            const ctxEth = document.getElementById('ethChart');
-            if (ctxEth) {
-                if (ethChartInstance) ethChartInstance.destroy();
-                ethChartInstance = new Chart(ctxEth.getContext('2d'), {
-                    type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [
-                            { label: 'Received (In)', data: ethInData, borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', borderWidth: 2, fill: true, tension: 0.4 },
-                            { label: 'Sent (Out)', data: ethOutData, borderColor: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.1)', borderWidth: 2, fill: true, tension: 0.4 }
-                        ]
-                    },
-                    options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: gridOptions } }, interaction: { mode: 'index', intersect: false } }
-                });
+            let xTickLimit = 12; 
+            if (currentRange === '7d') xTickLimit = 14;  
+            if (currentRange === '30d') xTickLimit = 15; 
+            if (currentRange === '90d') xTickLimit = 15; 
+
+            // 1. Hàm sinh cấu hình trục X độc lập cho từng Chart
+            function getXScaleConfig() {
+                return {
+                    grid: { display: false },
+                    ticks: {
+                        maxTicksLimit: xTickLimit,
+                        maxRotation: 45, 
+                        minRotation: 0
+                    }
+                };
             }
 
-            // 2. CHART PACKETS (ICMP Echos vs UDP Datagrams)
+            // 2. Hàm sinh cấu hình Zoom độc lập + Tự động đồng bộ cả 3 biểu đồ
+            function getZoomConfig() {
+                return {
+                    zoom: {
+                        drag: {
+                            enabled: true,
+                            backgroundColor: 'rgba(59, 130, 246, 0.3)' // Màu quét chuột
+                        },
+                        mode: 'x',
+                        onZoom: function({chart}) {
+                            isZoomed = true; 
+                            document.getElementById('timeRangeSelector').value = 'custom'; 
+                            
+                            // Lấy tọa độ index (bắt đầu và kết thúc) đang zoom của biểu đồ hiện tại
+                            const min = chart.scales.x.min;
+                            const max = chart.scales.x.max;
+                            
+                            // Ép cả 3 biểu đồ phải tuân thủ đúng dải tọa độ này
+                            [packetChartInstance, latencyChartInstance, noportChartInstance].forEach(c => {
+                                if (c && c !== chart) {
+                                    c.options.scales.x.min = min;
+                                    c.options.scales.x.max = max;
+                                    c.update('none'); // Lệnh update ngay lập tức (bỏ qua hiệu ứng animation để mượt, không lag)
+                                }
+                            });
+                        }
+                    }
+                };
+            }
+
+            // ===== 3. KHỞI TẠO CÁC BIỂU ĐỒ BÊN DƯỚI NHƯ BÌNH THƯỜNG =====
             const ctxPacket = document.getElementById('packetChart');
             if (ctxPacket) {
                 if (packetChartInstance) packetChartInstance.destroy();
@@ -480,15 +496,26 @@
                     data: {
                         labels: labels,
                         datasets: [
-                            { label: 'ICMP Echos In', data: icmpData, borderColor: '#eab308', borderWidth: 2, tension: 0.4 },
-                            { label: 'UDP Datagrams In', data: udpInData, borderColor: '#10b981', borderWidth: 2, tension: 0.4 }
+                            { label: 'Total IP Packets In', data: ipInPackets, borderColor: '#3b82f6', borderWidth: 2, tension: 0.4 },
+                            { label: 'ICMP Echo Requests In', data: icmpEchoIn, borderColor: '#eab308', borderWidth: 2, tension: 0.4 }
                         ]
                     },
-                    options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: gridOptions } }, interaction: { mode: 'index', intersect: false } }
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: getXScaleConfig(), // <-- Đổi thành gọi hàm
+                            y: { grid: gridOptions }
+                        },
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            zoom: getZoomConfig() // <-- Đổi thành gọi hàm
+                        }
+                    }
                 });
             }
 
-            // 3. CHART LATENCY (ICMP Response Time)
+            // 2. BIỂU ĐỒ SỐ 2: NETWORK LATENCY (ICMP Response Time)
             const ctxLatency = document.getElementById('latencyChart');
             if (ctxLatency) {
                 if (latencyChartInstance) latencyChartInstance.destroy();
@@ -496,13 +523,31 @@
                     type: 'line',
                     data: {
                         labels: labels,
-                        datasets: [{ label: 'Response Time (s)', data: latencyData, borderColor: '#ef4444', borderWidth: 2, pointBackgroundColor: '#ef4444', tension: 0.2 }]
+                        datasets: [{
+                            label: 'Response Time (seconds)',
+                            data: latencyData,
+                            borderColor: '#ef4444',
+                            backgroundColor: 'rgba(239, 68, 68, 0.05)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.2
+                        }]
                     },
-                    options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: gridOptions, beginAtZero: true } } }
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: getXScaleConfig(), // <-- Đổi thành gọi hàm
+                            y: { grid: gridOptions, beginAtZero: true }
+                        },
+                        plugins: {
+                            zoom: getZoomConfig() // <-- Đổi thành gọi hàm
+                        }
+                    }
                 });
             }
 
-            // 4. CHART NOPORT (UDP Error)
+            // 3. BIỂU ĐỒ SỐ 3: UDP CLOSED PORT ERROR (UDP NoPort Errors)
             const ctxNoport = document.getElementById('noportChart');
             if (ctxNoport) {
                 if (noportChartInstance) noportChartInstance.destroy();
@@ -510,9 +555,24 @@
                     type: 'bar',
                     data: {
                         labels: labels,
-                        datasets: [{ label: 'NoPorts Errors', data: noportData, backgroundColor: '#f97316', borderRadius: 4 }]
+                        datasets: [{
+                            label: 'NoPorts ICMP Errors',
+                            data: noportData,
+                            backgroundColor: '#f97316',
+                            borderRadius: 4
+                        }]
                     },
-                    options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: gridOptions, beginAtZero: true } } }
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: getXScaleConfig(), // <-- Đổi thành gọi hàm
+                            y: { grid: gridOptions, beginAtZero: true }
+                        },
+                        plugins: {
+                            zoom: getZoomConfig() // <-- Đổi thành gọi hàm
+                        }
+                    }
                 });
             }
         }
