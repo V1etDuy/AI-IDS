@@ -25,7 +25,8 @@ SSH_USER = "gns3"
 SSH_PASS = "gns3"
 CONTAINER_NAME = "GNS3.Attacker.7bd65ce8-264b-4778-b7ad-dd1ba45fdfcb"
 TARGET_IP = "192.168.10.1"
-
+# e34ed1fed6a74916482fde40bc96dcfe
+#1ad7238c90560b51d4b596fe29c6cdef
 # Cấu hình Zabbix & Model (Từ detector.py)
 ZABBIX_URL = "http://192.168.30.10/api_jsonrpc.php"
 TOKEN = "e34ed1fed6a74916482fde40bc96dcfe"
@@ -42,6 +43,7 @@ client = MongoClient("mongodb://localhost:27017/")
 db = client["ai_ids_database"]
 status_col = db["live_status"]    # Lưu trạng thái mới nhất
 history_col = db["history_logs"]  # Lưu lịch sử tấn công
+analytics_col = db["analytics_log"] 
 
 # ================= 3. KHỞI TẠO AI MODEL =================
 try:
@@ -104,6 +106,7 @@ def get_all_items(host_id):
 def extract_and_compute_delta(items):
     global prev_raw_data, prev_last_clock
     current_max_clock = max([int(i.get('lastclock', 0)) for i in items])
+    
     if current_max_clock <= prev_last_clock:
         return None
     prev_last_clock = current_max_clock
@@ -143,7 +146,7 @@ def extract_and_compute_delta(items):
     return df[features_list], delta_data
 
 def detection_loop():
-    print("🛡️ AI IDS đang chạy ngầm...")
+    print("AI IDS đang chạy ngầm...")
     host_id = get_host_id(HOST_NAME)
     attack_streak = 0
     last_attack = "NORMAL"
@@ -182,6 +185,8 @@ def detection_loop():
         # 1. Cập nhật trạng thái LIVE (Chỉ giữ 1 bản ghi duy nhất)
         status_col.update_one({"_id": "current_status"}, {"$set": doc}, upsert=True)
 
+        analytics_doc = doc.copy()
+        analytics_col.insert_one(analytics_doc)
         # 2. Xử lý lưu Lịch sử (Chỉ lưu khi có biến hoặc streak)
         if pred != "NORMAL":
             if pred == last_attack:
@@ -375,7 +380,30 @@ def get_live_status(current_user: dict = Depends(verify_token)):
 def get_history(limit: int = 10, current_user: dict = Depends(verify_token)):
     logs = list(history_col.find({}, {"_id": 0}).sort("_id", -1).limit(limit))
     return logs
+@app.get("/api/analytics")
+def get_analytics(range: str = "1h", current_user: dict = Depends(verify_token)):
+    # 1. Giải mã tham số range thành timedelta
+    delta_args = {}
+    if range.endswith("h"):
+        delta_args["hours"] = int(range.replace("h", ""))
+    elif range.endswith("d"):
+        delta_args["days"] = int(range.replace("d", ""))
+    else:
+        delta_args["hours"] = 1 # Mặc định 1h nếu lỗi
 
+    # 2. Tính toán mốc thời gian trong quá khứ (String format)
+    # Vì DB bạn lưu timestamp dạng "YYYY-MM-DD HH:MM:SS", MongoDB có thể query string so sánh lớn bé được
+    time_threshold = datetime.now() - timedelta(**delta_args)
+    time_threshold_str = time_threshold.strftime("%Y-%m-%d %H:%M:%S")
+
+    # 3. Truy vấn MongoDB lấy các record từ mốc thời gian đó trở về hiện tại
+    # Lưu ý: Giới hạn tối đa 500 điểm dữ liệu để tránh treo trình duyệt nếu chọn 90 ngày
+    logs = list(analytics_col.find(
+        {"timestamp": {"$gte": time_threshold_str}}, 
+        {"_id": 0}
+    ).sort("_id", -1).limit(500))
+    
+    return logs
 @app.post("/login")
 def login(req: LoginRequest):
     user = db["users"].find_one({"username": req.username})
